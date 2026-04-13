@@ -6,7 +6,7 @@
 using namespace std;
 
 int main(int argc, char *argv[]) {
-    const int buff_num = 4096;
+    const int buff_num = 1000000;
     char buff[buff_num];
     int file_desc;
     char curr = '\0';
