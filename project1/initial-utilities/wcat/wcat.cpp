@@ -6,8 +6,9 @@
 using namespace std;
 
 int main(int argc, char *argv[]){
-
-    const int buff_num = 4096;
+    //ssize_t read(size_t count; int fd, void buf[count], size_t count);
+    //linux manual
+    const int buff_num = 1000000;
     char buff[buff_num];
 
 
