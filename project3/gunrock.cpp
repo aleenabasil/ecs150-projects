@@ -31,14 +31,26 @@ string LOGFILE = "/dev/null";
 
 vector<HttpService *> services;
 
+pthread_mutex_t serv = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t Tfill = PTHREAD_COND_INITIALIZER;
+pthread_cond_t Tempty = PTHREAD_COND_INITIALIZER;
+
+deque<MySocket *> buffer;
+
+//make a queue for every thread
+//lock and unlock, process queue
+
+
 HttpService *find_service(HTTPRequest *request) {
    // find a service that is registered for this path prefix
+
   for (unsigned int idx = 0; idx < services.size(); idx++) {
     if (request->getPath().find(services[idx]->pathPrefix()) == 0) {
-      return services[idx];
+      //assign service to new variable then unlock before returning
+      HttpService *service = services[idx];
+      return service;
     }
   }
-
   return NULL;
 }
 
@@ -47,6 +59,7 @@ void invoke_service_method(HttpService *service, HTTPRequest *request, HTTPRespo
   stringstream payload;
 
   // invoke the service if we found one
+  
   if (service == NULL) {
     // not found status
     response->setStatus(404);
@@ -84,6 +97,7 @@ void handle_request(MySocket *client) {
     return;
   }
   
+  //global 
   HttpService *service = find_service(request);
   invoke_service_method(service, request, response);
 
@@ -102,6 +116,25 @@ void handle_request(MySocket *client) {
   sync_print("close_connection", payload.str());
   client->close();
   delete client;
+}
+
+void *thead_helper(void *arg) {
+  while (true) {
+    dthread_mutex_lock(&serv);
+    while (buffer.size() == 0) {
+      dthread_cond_wait(&Tfill, &serv);  
+  }
+
+  MySocket *client = buffer.front();
+  buffer.pop_front();
+  dthread_cond_signal(&Tempty);
+  dthread_mutex_unlock(&serv);
+  if(client != NULL) {
+    handle_request(client);
+
+  }
+}
+return NULL;
 }
 
 int main(int argc, char *argv[]) {
@@ -141,14 +174,31 @@ int main(int argc, char *argv[]) {
   MyServerSocket *server = new MyServerSocket(PORT);
   MySocket *client;
 
+
   // The order that you push services dictates the search order
   // for path prefix matching
   services.push_back(new FileService(BASEDIR));
-  
+  pthread_t *threads = new pthread_t[THREAD_POOL_SIZE];
+
+  for (int i = 0; i < THREAD_POOL_SIZE; i++) {
+    dthread_create(&threads[i], NULL, thead_helper, NULL);
+    dthread_detach(threads[i]);
+  }
+  //before going make thread pool
+  //processing one at atime, handle request clientt go into queue
   while(true) {
     sync_print("waiting_to_accept", "");
+    //client fo in FIFO
+    //thread in thread pool to run at single to run request
     client = server->accept();
     sync_print("client_accepted", "");
-    handle_request(client);
+    
+    dthread_mutex_lock(&serv);
+    while(buffer.size() == (unsigned int) BUFFER_SIZE) {
+      dthread_cond_wait(&Tempty, &serv);
+    }
+    buffer.push_back(client);
+    dthread_cond_signal(&Tfill);
+    dthread_mutex_unlock(&serv);
   }
 }
